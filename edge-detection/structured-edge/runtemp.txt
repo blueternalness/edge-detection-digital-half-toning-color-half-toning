@@ -1,0 +1,1 @@
+g++ -std=c++17 structured-edge.cpp -o structured-edge `pkg-config --cflags --libs opencv4`
