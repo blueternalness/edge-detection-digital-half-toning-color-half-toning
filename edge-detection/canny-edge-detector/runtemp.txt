@@ -1,0 +1,1 @@
+g++ -std=c++17 canny-edge-detector.cpp -o canny-edge-detector `pkg-config --cflags --libs opencv4`
