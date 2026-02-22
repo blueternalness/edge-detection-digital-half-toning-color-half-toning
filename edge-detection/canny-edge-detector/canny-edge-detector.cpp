@@ -15,6 +15,9 @@ void applyAndSaveCanny(const Mat& grayImage, const string& baseName, double lowT
     // Create a filename indicating the thresholds used
     string filename = baseName + "_Canny_" + to_string((int)lowThresh) + "_" + to_string((int)highThresh) + ".jpg";
     
+    // 8. Invert colors (Black edges on White background) to match the assignment
+    bitwise_not(edges, edges);
+
     // Save the image
     imwrite(filename, edges);
     cout << "Saved: " << filename << endl;
@@ -27,9 +30,9 @@ int main() {
     // Threshold pairs to experiment with (Low, High)
     // OpenCV recommends a 1:2 or 1:3 ratio between low and high thresholds
     vector<pair<double, double>> thresholds = {
-        {20.0, 60.0},    // Low thresholds (likely noisy)
-        {50.0, 150.0},   // Medium thresholds (usually balanced)
-        {100.0, 300.0}   // High thresholds (likely misses weaker edges)
+        {10.0, 30.0},    // Low thresholds (likely noisy)
+        {60.0, 180.0},   // Medium thresholds (usually balanced)
+        {120.0, 360.0}   // High thresholds (likely misses weaker edges)
     };
 
     for (const string& imgName : imageNames) {

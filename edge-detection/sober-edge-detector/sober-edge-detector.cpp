@@ -128,7 +128,7 @@ void applySobel(const vector<double>& grayImage, string baseFilename, double thr
 int main() {
     // Determine the best percentage visually. 
     // Usually, 10% to 15% yields the strongest edge boundaries without excessive noise.
-    double thresholdPercent = 12.5; 
+    double thresholdPercent = 15; 
 
     // Process Bird.raw
     cout << "Reading Bird.raw..." << endl;

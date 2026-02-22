@@ -1,104 +1,129 @@
-% Clear workspace and command window
+% evaluate_standalone.m
 clear; clc; close all;
 
-% 1. Setup paths and load data
-imageName = 'Bird'; % Change to 'Deer' when testing the other image
+% Configuration
+imageName = 'Deer'; % Change this to 'Deer' to run the other image
 gtFile = sprintf('%s_GT.mat', imageName);
-probMapFile = sprintf('%s_SE_prob.png', imageName);
 
-% Load Ground Truth .mat file
-% BSDS500 GTs are stored in a cell array named 'groundTruth'
+% Load Ground Truth data
 gtData = load(gtFile);
-GTs = gtData.groundTruth; 
+GTs = gtData.groundTruth;
 numGTs = length(GTs);
 
-% Read the generated probability edge map and normalize to [0, 1]
-probEdgeMap = double(imread(probMapFile)) / 255.0;
+% Define detectors and their output map types
+detectors = {'Sobel', 'Canny', 'SE'};
+fileTypes = {'_prob.png', '_binary.jpg', '_prob.png'};
+colors = {'g', 'k', 'b'}; % Green = Sobel, Black = Canny, Blue = SE
 
-% 2. Define Thresholds for Evaluation (Part 2)
-thresholds = 0.05:0.05:0.95; % Testing thresholds from 0.05 to 0.95
-numThresh = length(thresholds);
+% Prepare the plot
+figure('Name', sprintf('F-Measure Comparison: %s', imageName));
+hold on;
+fprintf('=== Standalone Evaluation for %s ===\n\n', imageName);
 
-% Preallocate arrays to store overall means for plotting
-overallMeanP = zeros(1, numThresh);
-overallMeanR = zeros(1, numThresh);
-overallFMeasure = zeros(1, numThresh);
-
-fprintf('Evaluating %s...\n', imageName);
-fprintf('--------------------------------------------------\n');
-
-% 3. Iterate through each threshold
-for tIdx = 1:numThresh
-    t = thresholds(tIdx);
-    binaryMap = probEdgeMap >= t; % Binarize the probability map
+% Loop through each of the 3 detectors
+for d = 1:length(detectors)
+    detName = detectors{d};
+    fileName = sprintf('%s_%s%s', imageName, detName, fileTypes{d});
     
-    P_per_GT = zeros(1, numGTs);
-    R_per_GT = zeros(1, numGTs);
     
-    % Evaluate against each of the 5 Ground Truths (Part 1 logic)
-    for gIdx = 1:numGTs
-        % Extract boundary coordinates from the GT cell array
-        gtBoundary = GTs{gIdx}.Boundaries;
-        
-        % NOTE: The official SE toolbox uses a distance tolerance (bipartite 
-        % graph matching) via edgesEvalImg(). If you don't have the compiled 
-        % mex files, this exact pixel-wise matching is the standard alternative:
-        TP = sum(binaryMap(:) & gtBoundary(:));
-        FP = sum(binaryMap(:) & ~gtBoundary(:));
-        FN = sum(~binaryMap(:) & gtBoundary(:));
-        
-        % Calculate Precision and Recall, avoiding division by zero
-        if (TP + FP) > 0
-            P_per_GT(gIdx) = TP / (TP + FP);
-        else
-            P_per_GT(gIdx) = 0;
-        end
-        
-        if (TP + FN) > 0
-            R_per_GT(gIdx) = TP / (TP + FN);
-        else
-            R_per_GT(gIdx) = 0;
-        end
-    end
+    % Load image and scale to [0, 1]
+    E = double(imread(fileName)) / 255.0;
     
-    % Compute mean Precision and mean Recall across all 5 GTs for this threshold
-    overallMeanP(tIdx) = mean(P_per_GT);
-    overallMeanR(tIdx) = mean(R_per_GT);
+    % INVERT COLORS: Ensure edges are 1 (white) and background is 0 (black)
+    E = 1.0 - E; 
     
-    % Calculate overall F-measure
-    if (overallMeanP(tIdx) + overallMeanR(tIdx)) > 0
-        overallFMeasure(tIdx) = 2 * (overallMeanP(tIdx) * overallMeanR(tIdx)) / ...
-                                    (overallMeanP(tIdx) + overallMeanR(tIdx));
+    % Determine if we are testing a curve (continuous) or a point (binary)
+    isBinary = strcmp(detName, 'Canny');
+    if isBinary
+        thresholds = 0.5; % Dummy threshold since Canny is already binarized
     else
-        overallFMeasure(tIdx) = 0;
+        thresholds = 0.01:0.02:0.99; % Sweep 50 thresholds for Sobel and SE
     end
     
-    % Print results for a specific threshold (e.g., t = 0.8) to answer Part (1)
-    if abs(t - 0.8) < 0.01
-        fprintf('\n--- Results at Threshold p = 0.80 ---\n');
-        for gIdx = 1:numGTs
-            fprintf('GT %d -> Precision: %.4f, Recall: %.4f\n', ...
-                    gIdx, P_per_GT(gIdx), R_per_GT(gIdx));
+    numThresh = length(thresholds);
+    meanP_all = zeros(1, numThresh);
+    meanR_all = zeros(1, numThresh);
+    F_all = zeros(1, numThresh);
+    
+    bestF = 0; bestT = 0;
+    best_P_GT = zeros(1, numGTs);
+    best_R_GT = zeros(1, numGTs);
+    
+    % Iterate through thresholds
+    for tIdx = 1:numThresh
+        t = thresholds(tIdx);
+        
+        % Binarize the map at the current threshold
+        if isBinary
+            E_bin = E > 0.5; 
+        else
+            E_bin = E >= t;
         end
-        fprintf('Overall Mean P: %.4f, Overall Mean R: %.4f, Final F: %.4f\n\n', ...
-                overallMeanP(tIdx), overallMeanR(tIdx), overallFMeasure(tIdx));
+        
+        P_GT = zeros(1, numGTs);
+        R_GT = zeros(1, numGTs);
+        
+        % Evaluate against each of the 5 Ground Truths
+        for g = 1:numGTs
+            gtBnd = GTs{g}.Boundaries;
+            
+            % STRICT PIXEL-WISE MATCHING (TP, FP, FN)
+            TP = sum(E_bin(:) & gtBnd(:));
+            FP = sum(E_bin(:) & ~gtBnd(:));
+            FN = sum(~E_bin(:) & gtBnd(:));
+            
+            P_GT(g) = TP / max(eps, TP + FP);
+            R_GT(g) = TP / max(eps, TP + FN);
+        end
+        
+        % Calculate Overall Means and F-Measure for this threshold
+        mP = mean(P_GT);
+        mR = mean(R_GT);
+        currentF = 2 * (mP * mR) / max(eps, mP + mR);
+        
+        meanP_all(tIdx) = mP;
+        meanR_all(tIdx) = mR;
+        F_all(tIdx) = currentF;
+        
+        % Keep track of the best performing threshold for the table
+        if currentF >= bestF
+            bestF = currentF;
+            bestT = t;
+            best_P_GT = P_GT;
+            best_R_GT = R_GT;
+        end
     end
+    
+    % Plot the results onto the chart
+    if isBinary
+        plot(bestT, bestF, 'ko', 'MarkerSize', 8, 'MarkerFaceColor', 'k', 'DisplayName', sprintf('Canny (Max F=%.3f)', bestF));
+    else
+        plot(thresholds, F_all, 'Color', colors{d}, 'LineWidth', 2, 'DisplayName', sprintf('%s (Max F=%.3f)', detName, bestF));
+        plot(bestT, bestF, 'ro', 'MarkerSize', 6, 'HandleVisibility', 'off'); % Mark the peak
+    end
+    
+    % Print the Table Data for the Command Window (NOW INCLUDES INDIVIDUAL F-MEASURES)
+    fprintf('--- %s Detector (Optimal Threshold t = %.2f) ---\n', detName, bestT);
+    fprintf('%-8s | %-12s | %-12s | %-12s\n', 'GT Index', 'Precision', 'Recall', 'F-Measure');
+    
+    for g = 1:numGTs
+        p_val = best_P_GT(g);
+        r_val = best_R_GT(g);
+        
+        % Calculate F-Measure for this specific GT row
+        f_val = 2 * (p_val * r_val) / max(eps, p_val + r_val);
+        
+        fprintf('GT %-5d | %-12.4f | %-12.4f | %-12.4f\n', g, p_val, r_val, f_val);
+    end
+    
+    fprintf('Overall Mean P: %.4f, Mean R: %.4f, Final F: %.4f\n\n', mean(best_P_GT), mean(best_R_GT), bestF);
+    
 end
 
-% 4. Find the Best F-Measure (Part 2)
-[bestF, bestIdx] = max(overallFMeasure);
-bestThresh = thresholds(bestIdx);
-
-fprintf('Optimal Threshold (Best F-Measure): %.2f with F = %.4f\n', bestThresh, bestF);
-
-% 5. Plot F-Measure vs. Threshold (Part 2)
-figure('Name', sprintf('F-Measure Curve: %s', imageName));
-plot(thresholds, overallFMeasure, '-o', 'LineWidth', 2, 'MarkerSize', 6);
-hold on;
-plot(bestThresh, bestF, 'r*', 'MarkerSize', 10, 'LineWidth', 2); % Highlight peak
-title(sprintf('F-Measure vs. Threshold (%s)', imageName));
+% Finalize the plot formatting
+title(sprintf('F-Measure vs. Threshold - %s', imageName));
 xlabel('Threshold Value');
 ylabel('Overall F-Measure');
+legend('Location', 'southoutside');
 grid on;
-legend('F-Measure Curve', sprintf('Max F = %.3f at t = %.2f', bestF, bestThresh), ...
-'Location', 'southoutside');
+hold off;

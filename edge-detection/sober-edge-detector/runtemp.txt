@@ -1,1 +1,1 @@
-g++ -std=c++17 ./sober-edge-detection.cpp -o ./sober-edge-detection
+g++ -std=c++17 ./sober-edge-detector.cpp -o ./sober-edge-detector
