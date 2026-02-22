@@ -1,0 +1,1 @@
+g++ -std=c++17 mbvq-based-error-diffusion.cpp -o mbvq-based-error-diffusion
